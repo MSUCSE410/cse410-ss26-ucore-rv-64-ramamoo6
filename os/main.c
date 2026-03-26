@@ -13,15 +13,16 @@ void clean_bss()
 
 void main()
 {
-	clean_bss();
-	printf("hello world!\n");
-	proc_init();
-	kinit();
-	kvm_init();
-	loader_init();
-	trap_init();
-	timer_init();
-	run_all_app();
-	infof("start scheduler!");
-	scheduler();
+    clean_bss();
+    printf("hello world!\n");
+    kinit();        // ← must be first, sets up kalloc
+    proc_init();
+    kvm_init();
+    trap_init();    // ← set up trap handler before timer
+    loader_init();
+    timer_init();
+    run_all_app();
+    infof("start scheduler!");
+    scheduler();
 }
+

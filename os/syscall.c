@@ -59,9 +59,52 @@ uint64 sys_task_info(TaskInfo *ti)
     kinfo.time = (int)(get_cycle() * 1000 / CPU_FREQ - p->first_time);
     memmove(kinfo.syscall_times, p->syscall_times, sizeof(p->syscall_times));
     copyout(p->pagetable, (uint64)ti, (char *)&kinfo, sizeof(TaskInfo));
+	return 0;
 }
 
 extern char trap_page[];
+
+uint64 sys_mmap(uint64 start, uint64 len, int port, int flag, int fd)
+{
+    if (len == 0) return 0;
+    if (port & ~0x7) return -1;        
+    if (!(port & 0x7)) return -1;      
+    if (start % PGSIZE != 0) return -1;
+    if (len > 1024*1024*1024) return -1;
+
+    struct proc *p = curr_proc();
+    int perm = PTE_U;
+    if (port & 1) perm |= PTE_R;
+    if (port & 2) perm |= PTE_W;
+    if (port & 4) perm |= PTE_X;
+
+    uint64 pages = (len + PGSIZE - 1) / PGSIZE;
+    for (uint64 i = 0; i < pages; i++) {
+        void *pa = kalloc();
+        if (pa == 0) return -1;
+        memset(pa, 0, PGSIZE);
+        if (mappages(p->pagetable, start + i * PGSIZE, PGSIZE, (uint64)pa, perm) != 0) {
+            kfree(pa);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+uint64 sys_munmap(uint64 start, uint64 len)
+{
+    if (start % PGSIZE != 0) return -1;
+    struct proc *p = curr_proc();
+    uint64 pages = (len + PGSIZE - 1) / PGSIZE;
+    for (uint64 i = 0; i < pages; i++) {
+        uint64 va = start + i * PGSIZE;
+        if (walkaddr(p->pagetable, va) == 0) return -1;
+    }
+    uvmunmap(p->pagetable, start, pages, 1);
+    return 0;
+}
+
+
 
 void syscall()
 {
@@ -109,42 +152,3 @@ void syscall()
 	tracef("syscall ret %d", ret);
 }
 
-uint64 sys_mmap(uint64 start, uint64 len, int port, int flag, int fd)
-{
-    if (len == 0) return 0;
-    if (port & ~0x7) return -1;        
-    if (!(port & 0x7)) return -1;      
-    if (start % PGSIZE != 0) return -1;
-    if (len > 1024*1024*1024) return -1;
-
-    struct proc *p = curr_proc();
-    int perm = PTE_U;
-    if (port & 1) perm |= PTE_R;
-    if (port & 2) perm |= PTE_W;
-    if (port & 4) perm |= PTE_X;
-
-    uint64 pages = (len + PGSIZE - 1) / PGSIZE;
-    for (uint64 i = 0; i < pages; i++) {
-        void *pa = kalloc();
-        if (pa == 0) return -1;
-        memset(pa, 0, PGSIZE);
-        if (mappages(p->pagetable, start + i * PGSIZE, PGSIZE, (uint64)pa, perm) != 0) {
-            kfree(pa);
-            return -1;
-        }
-    }
-    return 0;
-}
-
-uint64 sys_munmap(uint64 start, uint64 len)
-{
-    if (start % PGSIZE != 0) return -1;
-    struct proc *p = curr_proc();
-    uint64 pages = (len + PGSIZE - 1) / PGSIZE;
-    for (uint64 i = 0; i < pages; i++) {
-        uint64 va = start + i * PGSIZE;
-        if (walkaddr(p->pagetable, va) == 0) return -1;
-    }
-    uvmunmap(p->pagetable, start, pages, 1);
-    return 0;
-}
